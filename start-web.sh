@@ -10,4 +10,4 @@ fi
 
 # Start the server
 echo "🌐 Starting server on http://localhost:3001"
-node src/server.js
+yarn start

@@ -1,16 +1,14 @@
 {
   "name": "crypto-tracker",
   "version": "1.0.0",
-  "description": "Advanced cryptocurrency tracker with portfolio management and AI-powered recommendations",
-  "main": "src/index.js",
+  "description": "Advanced cryptocurrency tracker web application with portfolio management and AI-powered recommendations",
+  "main": "src/server.js",
   "scripts": {
-    "start": "node src/index.js",
-    "server": "node src/server.js",
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
     "web": "cd web && npm start",
     "build": "cd web && npm run build",
-    "dev": "nodemon src/index.js",
-    "dev:server": "nodemon src/server.js",
-    "dev:full": "concurrently \"npm run dev:server\" \"npm run web\"",
+    "dev:full": "concurrently \"npm run dev\" \"npm run web\"",
     "test": "echo \"No tests specified\" && exit 0"
   },
   "dependencies": {

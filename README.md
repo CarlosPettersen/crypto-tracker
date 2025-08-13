@@ -1,12 +1,12 @@
 # 🚀 Crypto Tracker
 
-An advanced cryptocurrency portfolio tracker with AI-powered recommendations, technical analysis, and a modern web interface.
+An advanced cryptocurrency portfolio tracker web application with AI-powered recommendations, technical analysis, and a modern responsive interface.
 
 ## Features
 
 ### 📊 Watchlist Management
 - Add/remove cryptocurrencies to track
-- Real-time price updates every 30 seconds
+- Real-time price updates every 90 seconds
 - 24-hour change tracking
 - Basic buy/sell/hold recommendations
 
@@ -38,6 +38,7 @@ An advanced cryptocurrency portfolio tracker with AI-powered recommendations, te
 - Interactive charts and visualizations
 - Real-time data updates
 - Intuitive user experience
+- Autocomplete coin search with dropdown selection
 
 ## Installation
 
@@ -58,7 +59,7 @@ cd web && npm install && cd ..
 
 ## Usage
 
-### 🌐 Web Interface (Recommended)
+### 🌐 Web Interface
 
 Start the web application:
 ```bash
@@ -67,19 +68,12 @@ Start the web application:
 
 Or manually:
 ```bash
-yarn server
+yarn start
 ```
 
 Then open your browser to: **http://localhost:3001**
 
-### 📱 Command Line Interface
-
-For the traditional CLI experience:
-```bash
-yarn start
-```
-
-Or for development with auto-reload:
+For development with auto-reload:
 ```bash
 yarn dev
 ```
@@ -94,40 +88,36 @@ yarn dev
 ### 🎨 User Experience
 - **Dark Theme**: Easy on the eyes with beautiful gradients
 - **Responsive Design**: Works perfectly on mobile and desktop
-- **Real-time Updates**: Prices update automatically every 30 seconds
+- **Real-time Updates**: Prices update automatically every 90 seconds
 - **Interactive Elements**: Click to add/remove coins, edit holdings, and more
+- **Autocomplete Search**: Easy coin selection with dropdown search
 
 ### 🔧 Quick Actions
-- **Add Coins**: Click the + button to add cryptocurrencies to your watchlist
+- **Add Coins**: Click the + button and search for cryptocurrencies
 - **Manage Portfolio**: Click the + button in portfolio to add/update holdings
 - **Remove Items**: Click delete icons to remove coins from watchlist
 - **Edit Holdings**: Click edit icons to modify your portfolio amounts
 
 ## Adding Coins
 
-When adding coins, use the CoinGecko ID format:
-- Bitcoin: `bitcoin`
-- Ethereum: `ethereum`
-- Cardano: `cardano`
-- Chainlink: `chainlink`
-- Solana: `solana`
+The application features an autocomplete search that makes it easy to find and add coins. Popular coins include:
+- Bitcoin (bitcoin)
+- Ethereum (ethereum)
+- Cardano (cardano)
+- Chainlink (chainlink)
+- Solana (solana)
 
-Popular coins are available as quick-select buttons in the add dialog.
-
-You can find more coin IDs at: https://api.coingecko.com/api/v3/coins/list
+Simply start typing the coin name and select from the dropdown suggestions.
 
 ## Portfolio Tracking
 
-### Web Interface
 1. Go to the Portfolio tab
 2. Click the + button to add holdings
-3. Enter the coin ID and amount you own
-4. View real-time portfolio value and allocation charts
+3. Search for the coin using the autocomplete dropdown
+4. Enter the amount you own
+5. View real-time portfolio value and allocation charts
 
-### CLI Interface
-- Enter the amount of each coin you own
-- The system will calculate current values and allocations
-- Set amount to 0 to remove a coin from your portfolio
+Set amount to 0 to remove a coin from your portfolio.
 
 ## Configuration
 
@@ -144,6 +134,8 @@ The application stores data locally in the `data/` directory:
 - `watchlist.json`: Your tracked coins
 - `portfolio.json`: Your holdings
 - `price_history.json`: Historical price data for analysis
+
+All data is automatically validated and cleaned to prevent corruption issues.
 
 ## Technical Analysis Indicators
 
@@ -185,25 +177,34 @@ The system uses a scoring algorithm that considers:
 ## API Usage
 
 The application uses the free CoinGecko API:
-- No API key required
-- Rate limits apply (check CoinGecko documentation)
-- Real-time price data
-- Historical data for technical analysis
+- **No API key required**
+- **Rate limits handled automatically** - The app includes:
+  - Minimum 15 seconds between API calls
+  - Exponential backoff on rate limit errors
+  - Automatic retry with intelligent delays
+  - Cached coin search results (1 hour cache)
+  - Data validation and corruption prevention
+- **Real-time price data** - Updates every 90 seconds (optimized for rate limits)
+- **Historical data** for technical analysis
+
+### Rate Limiting Features
+- ⏱️ **Smart Timing**: Automatic delays between API calls
+- 🔄 **Auto Retry**: Exponential backoff on rate limit errors  
+- 📦 **Caching**: Coin search results cached for better performance
+- ⚠️ **User Feedback**: Clear notifications when rate limited
+- 🛡️ **Graceful Degradation**: App continues working even with API issues
+- 🔧 **Data Validation**: Automatic cleanup of corrupted data
 
 ## Development
 
 ### Available Scripts
 
 ```bash
-# CLI application
-yarn start          # Start CLI version
-yarn dev           # Start CLI with auto-reload
-
 # Web application
-yarn server        # Start web server
+yarn start         # Start web server (production)
+yarn dev          # Start web server with auto-reload
 yarn web          # Start React development server
 yarn build        # Build React app for production
-yarn dev:server   # Start server with auto-reload
 yarn dev:full     # Start both server and React dev server
 ```
 
@@ -212,8 +213,7 @@ yarn dev:full     # Start both server and React dev server
 ```
 crypto-tracker/
 ├── src/                    # Backend source code
-│   ├── index.js           # CLI application entry point
-│   ├── server.js          # Web server entry point
+│   ├── server.js          # Web server entry point (main)
 │   ├── CryptoTracker.js   # Watchlist management & price tracking
 │   ├── PortfolioManager.js # Portfolio tracking & valuation
 │   └── RecommendationEngine.js # Technical analysis & optimization
@@ -225,7 +225,7 @@ crypto-tracker/
 │   └── build/            # Production build (auto-generated)
 ├── config/               # Configuration files
 ├── data/                 # Local data storage (auto-created)
-├── package.json          # Backend dependencies
+├── package.json          # Dependencies and scripts
 └── README.md
 ```
 
@@ -233,16 +233,18 @@ crypto-tracker/
 
 ### Common Issues
 
-1. **"Coin not found" error**: Verify the coin ID using CoinGecko's coin list
-2. **API errors**: Check internet connection and CoinGecko API status
-3. **Permission errors**: Ensure write permissions for the `data/` directory
-4. **Port 3001 in use**: Stop other applications using port 3001 or change the port in `src/server.js`
+1. **Portfolio coins disappearing**: The app now automatically validates and cleans corrupted data
+2. **"Coin not found" error**: Use the autocomplete search to find valid coin IDs
+3. **API errors**: The app handles rate limits automatically with retry logic
+4. **Permission errors**: Ensure write permissions for the `data/` directory
+5. **Port 3001 in use**: Stop other applications using port 3001 or change the port in `src/server.js`
 
 ### Web Interface Issues
 
 1. **Blank page**: Check browser console for errors and ensure server is running
 2. **API connection failed**: Verify the server is running on http://localhost:3001
 3. **Build errors**: Run `cd web && npm install` to ensure all dependencies are installed
+4. **Data persistence issues**: The app now includes automatic data validation and repair
 
 ### Debug Mode
 Set `DISPLAY.SHOW_DETAILED_INFO: true` in config for verbose logging.
@@ -254,8 +256,9 @@ The web interface features:
 - 📱 **Responsive design** for all screen sizes
 - 📊 **Interactive charts** for portfolio allocation
 - 🎯 **Real-time recommendations** with confidence indicators
-- 💼 **Portfolio management** with drag-and-drop editing
-- 🔄 **Auto-refresh** every 30 seconds
+- 💼 **Portfolio management** with persistent data storage
+- 🔄 **Auto-refresh** every 90 seconds
+- 🔍 **Autocomplete search** for easy coin selection
 
 ## Contributing
 

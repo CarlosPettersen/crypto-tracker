@@ -14,31 +14,119 @@ class PortfolioManager {
     try {
       const data = await fs.readFile(this.portfolioFile, 'utf8');
       const portfolioData = JSON.parse(data);
-      this.holdings = new Map(Object.entries(portfolioData));
+      
+      // Validate and clean the data
+      const validHoldings = new Map();
+      let hasInvalidData = false;
+      
+      for (const [coinId, holding] of Object.entries(portfolioData)) {
+        if (this.isValidHolding(coinId, holding)) {
+          validHoldings.set(coinId, holding);
+        } else {
+          console.warn(`Removing invalid holding data for ${coinId}:`, holding);
+          hasInvalidData = true;
+        }
+      }
+      
+      this.holdings = validHoldings;
+      
+      // If we found invalid data, save the cleaned version
+      if (hasInvalidData) {
+        console.log('Cleaning and saving portfolio after removing invalid entries');
+        await this.savePortfolio();
+      }
+      
+      console.log(`Loaded ${this.holdings.size} valid holdings from portfolio`);
     } catch (error) {
-      // File doesn't exist, start with empty portfolio
+      if (error.code === 'ENOENT') {
+        console.log('Portfolio file not found, starting with empty portfolio');
+        this.holdings = new Map();
+      } else {
+        console.error('Error loading portfolio:', error.message);
+        console.log('Starting with empty portfolio due to load error');
+        this.holdings = new Map();
+      }
     }
+  }
+
+  isValidHolding(coinId, holding) {
+    return (
+      coinId && 
+      typeof coinId === 'string' && 
+      coinId.length > 0 &&
+      holding &&
+      typeof holding === 'object' &&
+      typeof holding.amount === 'number' &&
+      holding.amount > 0 &&
+      !isNaN(holding.amount) &&
+      isFinite(holding.amount) &&
+      typeof holding.addedAt === 'number' &&
+      holding.addedAt > 0
+    );
   }
 
   async savePortfolio() {
     try {
-      const portfolioObj = Object.fromEntries(this.holdings);
-      await fs.writeFile(this.portfolioFile, JSON.stringify(portfolioObj, null, 2));
+      // Ensure data directory exists
+      const dataDir = path.dirname(this.portfolioFile);
+      await fs.mkdir(dataDir, { recursive: true });
+      
+      // Convert holdings to object and validate
+      const portfolioObj = {};
+      for (const [coinId, holding] of this.holdings) {
+        if (this.isValidHolding(coinId, holding)) {
+          portfolioObj[coinId] = holding;
+        } else {
+          console.warn(`Skipping invalid holding during save: ${coinId}`, holding);
+        }
+      }
+      
+      // Atomic write using temporary file
+      const tempFile = this.portfolioFile + '.tmp';
+      const jsonData = JSON.stringify(portfolioObj, null, 2);
+      
+      await fs.writeFile(tempFile, jsonData, 'utf8');
+      await fs.rename(tempFile, this.portfolioFile);
+      
+      console.log(`Portfolio saved successfully with ${Object.keys(portfolioObj).length} holdings`);
     } catch (error) {
       console.error('Error saving portfolio:', error.message);
+      throw error;
     }
   }
 
   async updateHolding(coinId, amount) {
-    if (amount <= 0) {
-      this.holdings.delete(coinId);
-      console.log(chalk.green(`✅ Removed ${coinId} from your portfolio`));
+    // Validate inputs
+    if (!coinId || typeof coinId !== 'string') {
+      throw new Error('Invalid coin ID');
+    }
+    
+    if (typeof amount !== 'number' || isNaN(amount) || !isFinite(amount)) {
+      throw new Error('Invalid amount - must be a valid number');
+    }
+    
+    if (amount < 0) {
+      throw new Error('Amount cannot be negative');
+    }
+    
+    const cleanCoinId = coinId.toLowerCase().trim();
+    
+    if (amount === 0) {
+      this.holdings.delete(cleanCoinId);
+      console.log(chalk.green(`✅ Removed ${cleanCoinId} from your portfolio`));
     } else {
-      this.holdings.set(coinId, {
+      const holding = {
         amount: amount,
         addedAt: Date.now()
-      });
-      console.log(chalk.green(`✅ Updated ${coinId}: ${amount} coins`));
+      };
+      
+      // Validate the holding object before saving
+      if (!this.isValidHolding(cleanCoinId, holding)) {
+        throw new Error('Generated holding data is invalid');
+      }
+      
+      this.holdings.set(cleanCoinId, holding);
+      console.log(chalk.green(`✅ Updated ${cleanCoinId}: ${amount} coins`));
     }
     
     await this.savePortfolio();

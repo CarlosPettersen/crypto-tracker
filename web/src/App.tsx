@@ -117,9 +117,18 @@ function App() {
     try {
       console.log('Loading data...');
       const [watchlist, portfolio, recommendations] = await Promise.all([
-        CryptoService.getWatchlist(),
-        CryptoService.getPortfolio(),
-        CryptoService.getRecommendations(),
+        CryptoService.getWatchlist().catch(err => {
+          console.warn('Watchlist failed:', err.message);
+          return [];
+        }),
+        CryptoService.getPortfolio().catch(err => {
+          console.warn('Portfolio failed:', err.message);
+          return { holdings: [], totalValue: 0, totalChange24h: 0, totalChangePercent: 0 };
+        }),
+        CryptoService.getRecommendations().catch(err => {
+          console.warn('Recommendations failed:', err.message);
+          return [];
+        }),
       ]);
       
       console.log('Data loaded:', { watchlist: watchlist.length, portfolio: portfolio.holdings.length, recommendations: recommendations.length });
@@ -127,9 +136,13 @@ function App() {
       setWatchlistData(watchlist);
       setPortfolioData(portfolio);
       setRecommendationsData(recommendations);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading data:', error);
-      showSnackbar('Error loading data', 'error');
+      if (error?.message?.includes('429') || error?.message?.includes('rate limit')) {
+        showSnackbar('API rate limited. Data will refresh automatically in a moment.', 'warning');
+      } else {
+        showSnackbar('Error loading data', 'error');
+      }
     } finally {
       setLoading(false);
     }
@@ -138,8 +151,8 @@ function App() {
   useEffect(() => {
     loadData();
     
-    // Auto-refresh every 30 seconds
-    const interval = setInterval(loadData, 30000);
+    // Auto-refresh every 2 minutes (increased to avoid rate limits)
+    const interval = setInterval(loadData, 120000);
     return () => clearInterval(interval);
   }, [loadData]);
 

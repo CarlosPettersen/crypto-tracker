@@ -5,12 +5,17 @@ const fs = require('fs').promises;
 const path = require('path');
 
 class CryptoTracker {
-  constructor() {
+  constructor(apiManager = null) {
     this.watchlist = [...config.COINS];
     this.priceData = new Map();
     this.priceHistory = new Map();
     this.watchlistFile = path.join(__dirname, '../data/watchlist.json');
     this.priceHistoryFile = path.join(__dirname, '../data/price_history.json');
+    this.apiManager = apiManager; // Use centralized API manager if provided
+    this.lastApiCall = 0;
+    this.minApiInterval = 60000; // Minimum 60 seconds between API calls (increased from 30s)
+    this.retryCount = 0;
+    this.maxRetries = 3;
   }
 
   async start() {
@@ -21,13 +26,15 @@ class CryptoTracker {
     await this.loadWatchlist();
     await this.loadPriceHistory();
     
-    // Start price tracking
-    await this.updatePrices();
+    // Start price tracking with initial delay
+    setTimeout(() => {
+      this.updatePrices();
+    }, 2000);
     
-    // Set up periodic updates
+    // Set up periodic updates with longer interval to avoid rate limits
     setInterval(() => {
       this.updatePrices();
-    }, config.API.UPDATE_INTERVAL);
+    }, Math.max(config.API.UPDATE_INTERVAL, 120000)); // Minimum 2 minutes (increased from 60s)
   }
 
   async ensureDataDirectory() {
@@ -80,55 +87,138 @@ class CryptoTracker {
     if (this.watchlist.length === 0) return;
 
     try {
-      const coinIds = this.watchlist.join(',');
-      const response = await axios.get(
-        `${config.API.COINGECKO_BASE_URL}/simple/price`,
-        {
-          params: {
-            ids: coinIds,
-            vs_currencies: config.API.CURRENCY,
-            include_24hr_change: true,
-            include_market_cap: true,
-            include_24hr_vol: true
-          }
-        }
-      );
-
-      const timestamp = Date.now();
+      console.log(chalk.blue(`Fetching prices for: ${this.watchlist.join(', ')}`));
       
-      for (const [coinId, data] of Object.entries(response.data)) {
-        // Update current price data
-        this.priceData.set(coinId, {
-          ...data,
-          timestamp,
-          price: data[config.API.CURRENCY],
-          change_24h: data[`${config.API.CURRENCY}_24h_change`],
-          market_cap: data[`${config.API.CURRENCY}_market_cap`],
-          volume_24h: data[`${config.API.CURRENCY}_24h_vol`]
-        });
-
-        // Update price history
-        if (!this.priceHistory.has(coinId)) {
-          this.priceHistory.set(coinId, []);
+      let priceResponse;
+      
+      if (this.apiManager) {
+        // Use centralized API manager
+        priceResponse = await this.apiManager.getPrices(this.watchlist);
+      } else {
+        // Fallback to direct API call with rate limiting
+        const now = Date.now();
+        const timeSinceLastCall = now - this.lastApiCall;
+        
+        if (timeSinceLastCall < this.minApiInterval) {
+          console.log(chalk.yellow(`Rate limiting: waiting ${Math.ceil((this.minApiInterval - timeSinceLastCall) / 1000)}s before next API call`));
+          return;
         }
         
-        const history = this.priceHistory.get(coinId);
-        history.push({
-          timestamp,
-          price: data[config.API.CURRENCY],
-          change_24h: data[`${config.API.CURRENCY}_24h_change`]
-        });
+        this.lastApiCall = now;
+        
+        const response = await axios.get(
+          `${config.API.COINGECKO_BASE_URL}/simple/price`,
+          {
+            params: {
+              ids: this.watchlist.join(','),
+              vs_currencies: config.API.CURRENCY,
+              include_24hr_change: true,
+              include_market_cap: true,
+              include_24hr_vol: true
+            },
+            timeout: 30000,
+            headers: {
+              'Accept': 'application/json',
+              'User-Agent': 'CryptoTracker/1.0'
+            }
+          }
+        );
+        
+        priceResponse = response.data;
+      }
 
-        // Keep only last 100 price points
-        if (history.length > 100) {
-          history.shift();
+      const timestamp = Date.now();
+      let updatedCount = 0;
+      
+      for (const [coinId, data] of Object.entries(priceResponse)) {
+        // Handle both API manager format and direct API format
+        const price = data.usd || data[config.API.CURRENCY];
+        const change24h = data.usd_24h_change || data[`${config.API.CURRENCY}_24h_change`];
+        const marketCap = data.usd_market_cap || data[`${config.API.CURRENCY}_market_cap`];
+        const volume24h = data.usd_24h_vol || data[`${config.API.CURRENCY}_24h_vol`];
+        
+        if (price) {
+          // Update current price data
+          this.priceData.set(coinId, {
+            ...data,
+            timestamp,
+            price,
+            change_24h: change24h,
+            market_cap: marketCap,
+            volume_24h: volume24h
+          });
+
+          // Update price history
+          if (!this.priceHistory.has(coinId)) {
+            this.priceHistory.set(coinId, []);
+          }
+          
+          const history = this.priceHistory.get(coinId);
+          history.push({
+            timestamp,
+            price,
+            change_24h: change24h
+          });
+
+          // Keep only last 100 price points
+          if (history.length > 100) {
+            history.shift();
+          }
+          
+          updatedCount++;
         }
       }
 
       await this.savePriceHistory();
       
+      // Reset retry count on success
+      this.retryCount = 0;
+      
+      console.log(chalk.green(`✅ Updated prices for ${updatedCount} coins`));
+      
     } catch (error) {
-      console.error(chalk.red('Error updating prices:', error.message));
+      this.handleApiError(error);
+    }
+  }
+
+  handleApiError(error) {
+    if (error.response) {
+      const status = error.response.status;
+      const statusText = error.response.statusText;
+      
+      switch (status) {
+        case 429:
+          this.retryCount++;
+          const backoffTime = Math.min(60000 * Math.pow(2, this.retryCount), 300000); // Max 5 minutes
+          console.log(chalk.yellow(`⚠️  Rate limited (429). Backing off for ${backoffTime / 1000}s (attempt ${this.retryCount}/${this.maxRetries})`));
+          
+          if (this.retryCount < this.maxRetries) {
+            setTimeout(() => {
+              this.updatePrices();
+            }, backoffTime);
+          } else {
+            console.log(chalk.red(`❌ Max retries reached. Will try again on next scheduled update.`));
+            this.retryCount = 0;
+          }
+          break;
+          
+        case 403:
+          console.log(chalk.red(`❌ API access forbidden (403). Check if API key is needed.`));
+          break;
+          
+        case 404:
+          console.log(chalk.red(`❌ API endpoint not found (404). Check API URL.`));
+          break;
+          
+        default:
+          console.log(chalk.red(`❌ API error ${status}: ${statusText}`));
+      }
+    } else if (error.code === 'ECONNABORTED') {
+      console.log(chalk.yellow(`⚠️  Request timeout. Will retry on next update.`));
+    } else if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
+      console.log(chalk.red(`❌ Network error: ${error.message}`));
+    } else {
+      console.log(chalk.red(`❌ Unexpected error: ${error.message}`));
     }
   }
 
@@ -138,14 +228,26 @@ class CryptoTracker {
       return;
     }
 
-    // Verify coin exists
+    // Verify coin exists with rate limiting
+    const now = Date.now();
+    if (now - this.lastApiCall < this.minApiInterval) {
+      await new Promise(resolve => setTimeout(resolve, this.minApiInterval - (now - this.lastApiCall)));
+    }
+
     try {
+      this.lastApiCall = Date.now();
+      
       const response = await axios.get(
         `${config.API.COINGECKO_BASE_URL}/simple/price`,
         {
           params: {
             ids: coinId,
             vs_currencies: config.API.CURRENCY
+          },
+          timeout: 10000,
+          headers: {
+            'Accept': 'application/json',
+            'User-Agent': 'CryptoTracker/1.0'
           }
         }
       );
@@ -157,12 +259,20 @@ class CryptoTracker {
 
       this.watchlist.push(coinId);
       await this.saveWatchlist();
-      await this.updatePrices();
+      
+      // Update prices after a short delay
+      setTimeout(() => {
+        this.updatePrices();
+      }, 2000);
       
       console.log(chalk.green(`✅ Added ${coinId} to your watchlist`));
       
     } catch (error) {
-      console.log(chalk.red(`Error adding coin: ${error.message}`));
+      if (error.response?.status === 429) {
+        console.log(chalk.yellow(`⚠️  Rate limited while adding coin. Try again in a moment.`));
+      } else {
+        console.log(chalk.red(`Error adding coin: ${error.message}`));
+      }
     }
   }
 
@@ -218,6 +328,13 @@ class CryptoTracker {
 
     console.log(chalk.gray('─'.repeat(80)));
     console.log(chalk.gray(`Last updated: ${new Date().toLocaleTimeString()}`));
+    
+    // Show rate limit status
+    const timeSinceLastCall = Date.now() - this.lastApiCall;
+    const nextUpdateIn = Math.max(0, this.minApiInterval - timeSinceLastCall);
+    if (nextUpdateIn > 0) {
+      console.log(chalk.gray(`Next update available in: ${Math.ceil(nextUpdateIn / 1000)}s`));
+    }
   }
 
   getRecommendation(coinId, change24h) {

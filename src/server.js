@@ -4,14 +4,18 @@ const path = require('path');
 const CryptoTracker = require('./CryptoTracker');
 const PortfolioManager = require('./PortfolioManager');
 const RecommendationEngine = require('./RecommendationEngine');
+const MultiApiManager = require('./MultiApiManager');
 
 class CryptoTrackerServer {
   constructor() {
     this.app = express();
     this.port = process.env.PORT || 3001;
     
-    // Initialize components
-    this.tracker = new CryptoTracker();
+    // Initialize multi-API manager
+    this.apiManager = new MultiApiManager();
+    
+    // Initialize components with API manager
+    this.tracker = new CryptoTracker(this.apiManager);
     this.portfolio = new PortfolioManager();
     this.recommendations = new RecommendationEngine();
     
@@ -41,6 +45,12 @@ class CryptoTrackerServer {
     // New endpoint for coin search
     this.app.get('/api/coins/search', this.searchCoins.bind(this));
     
+    // API status endpoint for debugging
+    this.app.get('/api/status', this.getApiStatus.bind(this));
+    
+    // Cache management endpoints
+    this.app.post('/api/cache/clear', this.clearCache.bind(this));
+    
     // Serve React app
     this.app.get('*', (req, res) => {
       res.sendFile(path.join(__dirname, '../web/build/index.html'));
@@ -50,21 +60,45 @@ class CryptoTrackerServer {
   async getWatchlist(req, res) {
     try {
       const watchlist = this.tracker.getWatchlist();
+      
+      if (watchlist.length === 0) {
+        return res.json([]);
+      }
+      
+      // Get prices using the API manager
+      const prices = await this.apiManager.getPrices(watchlist);
       const watchlistData = [];
       
       for (const coinId of watchlist) {
-        const priceData = this.tracker.getPriceData(coinId);
+        const priceData = prices[coinId];
+        
         if (priceData) {
-          const recommendation = this.tracker.getRecommendation(coinId, priceData.change_24h);
+          const price = priceData.usd || 0;
+          const change24h = priceData.usd_24h_change || 0;
+          const recommendation = this.tracker.getRecommendation(coinId, change24h);
+          
           watchlistData.push({
             id: coinId,
-            name: coinId.charAt(0).toUpperCase() + coinId.slice(1),
-            price: priceData.price,
-            change24h: priceData.change_24h,
-            marketCap: priceData.market_cap,
-            volume24h: priceData.volume_24h,
+            name: this.formatCoinName(coinId),
+            price: price,
+            change24h: change24h,
+            marketCap: priceData.usd_market_cap || 0,
+            volume24h: priceData.usd_24h_vol || 0,
             recommendation: recommendation,
-            timestamp: priceData.timestamp
+            timestamp: Date.now()
+          });
+        } else {
+          // Include coin even without price data
+          watchlistData.push({
+            id: coinId,
+            name: this.formatCoinName(coinId),
+            price: 0,
+            change24h: 0,
+            marketCap: 0,
+            volume24h: 0,
+            recommendation: 'HOLD',
+            timestamp: Date.now(),
+            unavailable: true
           });
         }
       }
@@ -114,23 +148,42 @@ class CryptoTrackerServer {
         });
       }
 
-      const coinIds = Array.from(holdings.keys());
-      console.log('Getting prices for coins:', coinIds);
+      // Validate and clean holdings data
+      const validHoldings = new Map();
+      for (const [coinId, holding] of holdings) {
+        if (holding && typeof holding.amount === 'number' && holding.amount > 0) {
+          validHoldings.set(coinId, holding);
+        } else {
+          console.warn(`Invalid holding data for ${coinId}:`, holding);
+        }
+      }
+
+      if (validHoldings.size === 0) {
+        return res.json({ 
+          holdings: [], 
+          totalValue: 0, 
+          totalChange24h: 0, 
+          totalChangePercent: 0 
+        });
+      }
+
+      const coinIds = Array.from(validHoldings.keys());
+      console.log('Getting prices for valid coins:', coinIds);
       
-      const prices = await this.getCurrentPricesFixed(coinIds);
+      const prices = await this.apiManager.getPrices(coinIds);
       console.log('Received prices:', Object.keys(prices));
       
       let totalValue = 0;
       let totalChange24h = 0;
       const portfolioData = [];
 
-      for (const [coinId, holding] of holdings) {
+      for (const [coinId, holding] of validHoldings) {
         const priceData = prices[coinId];
         console.log(`Processing ${coinId}:`, { holding, priceData });
         
-        if (priceData) {
-          const currentPrice = priceData.usd || priceData.price || 0;
-          const change24h = priceData.usd_24h_change || priceData.change_24h || 0;
+        if (priceData && priceData.usd) {
+          const currentPrice = priceData.usd;
+          const change24h = priceData.usd_24h_change || 0;
           const holdingValue = holding.amount * currentPrice;
           const change24hValue = holdingValue * (change24h / 100);
 
@@ -139,7 +192,7 @@ class CryptoTrackerServer {
 
           portfolioData.push({
             coinId,
-            name: coinId.charAt(0).toUpperCase() + coinId.slice(1),
+            name: this.formatCoinName(coinId),
             amount: holding.amount,
             price: currentPrice,
             value: holdingValue,
@@ -148,7 +201,19 @@ class CryptoTrackerServer {
             allocation: 0 // Will be calculated after totalValue is known
           });
         } else {
-          console.warn(`No price data for ${coinId}`);
+          console.warn(`No valid price data for ${coinId}, keeping in portfolio but showing as unavailable`);
+          // Keep the coin in portfolio but show as unavailable
+          portfolioData.push({
+            coinId,
+            name: this.formatCoinName(coinId),
+            amount: holding.amount,
+            price: 0,
+            value: 0,
+            change24h: 0,
+            change24hValue: 0,
+            allocation: 0,
+            unavailable: true
+          });
         }
       }
 
@@ -177,46 +242,94 @@ class CryptoTrackerServer {
     }
   }
 
-  async getCurrentPricesFixed(coinIds) {
-    try {
-      const axios = require('axios');
-      const config = require('../config/config');
-      
-      const response = await axios.get(
-        `${config.API.COINGECKO_BASE_URL}/simple/price`,
-        {
-          params: {
-            ids: coinIds.join(','),
-            vs_currencies: config.API.CURRENCY,
-            include_24hr_change: true
-          }
-        }
-      );
-      
-      console.log('CoinGecko API response:', response.data);
-      return response.data;
-    } catch (error) {
-      console.error('Error fetching prices:', error.message);
-      return {};
-    }
+  formatCoinName(coinId) {
+    const nameMap = {
+      'bitcoin': 'Bitcoin',
+      'ethereum': 'Ethereum',
+      'cardano': 'Cardano',
+      'chainlink': 'Chainlink',
+      'solana': 'Solana',
+      'polkadot': 'Polkadot',
+      'dogecoin': 'Dogecoin',
+      'avalanche-2': 'Avalanche',
+      'polygon': 'Polygon',
+      'uniswap': 'Uniswap'
+    };
+    return nameMap[coinId] || coinId.charAt(0).toUpperCase() + coinId.slice(1);
   }
 
   async updatePortfolio(req, res) {
     try {
       const { coinId, amount } = req.body;
-      console.log(`Updating portfolio: ${coinId} = ${amount}`);
       
-      await this.portfolio.updateHolding(coinId.toLowerCase(), parseFloat(amount));
+      // Validate input
+      if (!coinId || typeof coinId !== 'string') {
+        return res.status(400).json({ error: 'Invalid coin ID' });
+      }
       
-      // Verify the update
+      const numAmount = parseFloat(amount);
+      if (isNaN(numAmount) || numAmount < 0) {
+        return res.status(400).json({ error: 'Invalid amount - must be a positive number' });
+      }
+      
+      console.log(`Updating portfolio: ${coinId} = ${numAmount}`);
+      
+      // Load current portfolio first
+      await this.portfolio.loadPortfolio();
+      
+      // Update the holding
+      await this.portfolio.updateHolding(coinId.toLowerCase(), numAmount);
+      
+      // Verify the update by reloading
       await this.portfolio.loadPortfolio();
       const holdings = this.portfolio.getHoldings();
       console.log('Portfolio after update:', Object.fromEntries(holdings));
       
-      res.json({ success: true, message: `Updated ${coinId} holding to ${amount}` });
+      // Check if the update was successful
+      const updatedHolding = holdings.get(coinId.toLowerCase());
+      if (numAmount > 0 && (!updatedHolding || updatedHolding.amount !== numAmount)) {
+        throw new Error('Portfolio update verification failed');
+      }
+      
+      res.json({ 
+        success: true, 
+        message: numAmount > 0 
+          ? `Updated ${coinId} holding to ${numAmount}` 
+          : `Removed ${coinId} from portfolio`
+      });
     } catch (error) {
       console.error('Error updating portfolio:', error);
       res.status(400).json({ error: error.message });
+    }
+  }
+
+  async getApiStatus(req, res) {
+    try {
+      const stats = this.apiManager.getCacheStats();
+      const apiStatus = this.apiManager.getApiStatus();
+      
+      res.json({
+        apiManager: stats,
+        apis: apiStatus,
+        server: {
+          uptime: process.uptime(),
+          memory: process.memoryUsage(),
+          timestamp: Date.now()
+        }
+      });
+    } catch (error) {
+      console.error('Error getting API status:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  async clearCache(req, res) {
+    try {
+      this.apiManager.clearCache();
+      res.json({ success: true, message: 'Cache cleared successfully' });
+    } catch (error) {
+      console.error('Error clearing cache:', error);
+      res.status(500).json({ error: error.message });
     }
   }
 
@@ -227,15 +340,63 @@ class CryptoTrackerServer {
         return res.json([]);
       }
 
-      const axios = require('axios');
-      const config = require('../config/config');
-      
-      // Get list of coins from CoinGecko
-      const response = await axios.get(`${config.API.COINGECKO_BASE_URL}/coins/list`);
-      const coins = response.data;
+      // Use cached coin list if available and recent (cache for 1 hour)
+      const now = Date.now();
+      if (!this.coinListCache || !this.coinListCacheTime || (now - this.coinListCacheTime) > 3600000) {
+        console.log('Fetching fresh coin list from CoinGecko...');
+        
+        const axios = require('axios');
+        const config = require('../config/config');
+        
+        // Rate limiting for coin list API
+        if (!this.lastCoinListApiCall) this.lastCoinListApiCall = 0;
+        const timeSinceLastCall = now - this.lastCoinListApiCall;
+        const minInterval = 30000; // 30 seconds minimum for coin list
+        
+        if (timeSinceLastCall < minInterval) {
+          console.log(`Rate limiting coin list API call, waiting ${Math.ceil((minInterval - timeSinceLastCall) / 1000)}s`);
+          await new Promise(resolve => setTimeout(resolve, minInterval - timeSinceLastCall));
+        }
+        
+        this.lastCoinListApiCall = Date.now();
+        
+        try {
+          const response = await axios.get(`${config.API.COINGECKO_BASE_URL}/coins/list`, {
+            timeout: 15000,
+            headers: {
+              'Accept': 'application/json',
+              'User-Agent': 'CryptoTracker/1.0'
+            }
+          });
+          
+          this.coinListCache = response.data;
+          this.coinListCacheTime = now;
+          console.log(`Cached ${this.coinListCache.length} coins`);
+        } catch (error) {
+          if (error.response?.status === 429) {
+            console.log('Rate limited while fetching coin list, using fallback');
+            // Return popular coins as fallback
+            return res.json([
+              { id: 'bitcoin', name: 'Bitcoin', symbol: 'BTC' },
+              { id: 'ethereum', name: 'Ethereum', symbol: 'ETH' },
+              { id: 'cardano', name: 'Cardano', symbol: 'ADA' },
+              { id: 'solana', name: 'Solana', symbol: 'SOL' },
+              { id: 'polkadot', name: 'Polkadot', symbol: 'DOT' },
+              { id: 'chainlink', name: 'Chainlink', symbol: 'LINK' },
+              { id: 'litecoin', name: 'Litecoin', symbol: 'LTC' },
+              { id: 'avalanche-2', name: 'Avalanche', symbol: 'AVAX' }
+            ].filter(coin => 
+              coin.id.toLowerCase().includes(query.toLowerCase()) ||
+              coin.name.toLowerCase().includes(query.toLowerCase()) ||
+              coin.symbol.toLowerCase().includes(query.toLowerCase())
+            ));
+          }
+          throw error;
+        }
+      }
       
       // Filter coins based on query
-      const filteredCoins = coins
+      const filteredCoins = this.coinListCache
         .filter(coin => 
           coin.id.toLowerCase().includes(query.toLowerCase()) ||
           coin.name.toLowerCase().includes(query.toLowerCase()) ||
@@ -251,7 +412,11 @@ class CryptoTrackerServer {
       res.json(filteredCoins);
     } catch (error) {
       console.error('Error searching coins:', error);
-      res.status(500).json({ error: error.message });
+      if (error.response?.status === 429) {
+        res.status(429).json({ error: 'Rate limited. Please try again in a moment.' });
+      } else {
+        res.status(500).json({ error: error.message });
+      }
     }
   }
 
@@ -407,6 +572,9 @@ class CryptoTrackerServer {
   }
 
   async start() {
+    // Warm the API cache to provide immediate responses
+    this.apiManager.warmCache();
+    
     // Initialize tracker
     await this.tracker.start();
     

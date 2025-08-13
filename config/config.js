@@ -13,8 +13,13 @@ module.exports = {
   // API settings
   API: {
     COINGECKO_BASE_URL: 'https://api.coingecko.com/api/v3',
-    UPDATE_INTERVAL: 30000, // 30 seconds
-    CURRENCY: 'usd'
+    UPDATE_INTERVAL: 90000, // 90 seconds (increased to avoid rate limits)
+    CURRENCY: 'usd',
+    RATE_LIMIT: {
+      MIN_INTERVAL: 10000,    // Minimum 10 seconds between API calls
+      MAX_RETRIES: 3,         // Maximum retry attempts
+      BACKOFF_MULTIPLIER: 2   // Exponential backoff multiplier
+    }
   },
   
   // Display settings
