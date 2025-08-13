@@ -3,7 +3,7 @@ const cors = require('cors');
 const path = require('path');
 const CryptoTracker = require('./CryptoTracker');
 const PortfolioManager = require('./PortfolioManager');
-const RecommendationEngine = require('./RecommendationEngine');
+const AdvancedRecommendationEngine = require('./AdvancedRecommendationEngine');
 const MultiApiManager = require('./MultiApiManager');
 
 class CryptoTrackerServer {
@@ -17,7 +17,7 @@ class CryptoTrackerServer {
     // Initialize components with API manager
     this.tracker = new CryptoTracker(this.apiManager);
     this.portfolio = new PortfolioManager();
-    this.recommendations = new RecommendationEngine(this.apiManager);
+    this.recommendations = new AdvancedRecommendationEngine(this.apiManager);
     
     this.setupMiddleware();
     this.setupRoutes();
@@ -431,14 +431,14 @@ class CryptoTrackerServer {
         return res.json([]);
       }
       
-      console.log(`Getting recommendations for portfolio coins: ${portfolioCoins.join(', ')}`);
+      console.log(`Getting advanced recommendations for portfolio coins: ${portfolioCoins.join(', ')}`);
       
-      // Use the updated getDetailedRecommendations method with portfolio coins
-      const recommendations = await this.recommendations.getDetailedRecommendations(portfolioCoins);
+      // Use the advanced recommendation engine
+      const recommendations = await this.recommendations.getAdvancedRecommendations(portfolioCoins);
       
       res.json(recommendations);
     } catch (error) {
-      console.error('Error getting recommendations:', error);
+      console.error('Error getting advanced recommendations:', error);
       res.status(500).json({ error: error.message });
     }
   }
@@ -446,15 +446,15 @@ class CryptoTrackerServer {
   async getCoinRecommendation(req, res) {
     try {
       const { coinId } = req.params;
-      const analysis = await this.recommendations.analyzeAndRecommend(coinId);
+      const analysis = await this.recommendations.generateAdvancedRecommendation(coinId, null);
       
       if (!analysis) {
-        return res.status(404).json({ error: 'Analysis not available for this coin' });
+        return res.status(404).json({ error: 'Advanced analysis not available for this coin' });
       }
       
       res.json(analysis);
     } catch (error) {
-      console.error('Error getting coin recommendation:', error);
+      console.error('Error getting advanced coin recommendation:', error);
       res.status(500).json({ error: error.message });
     }
   }

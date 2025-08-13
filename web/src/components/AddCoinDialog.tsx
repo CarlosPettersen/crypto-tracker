@@ -11,7 +11,7 @@ import {
   TextField,
   CircularProgress,
 } from '@mui/material';
-import { CryptoService, CoinSearchResult } from '../services/CryptoService';
+import { cryptoService, CoinSearchResult } from '../services/CryptoService';
 
 interface AddCoinDialogProps {
   open: boolean;
@@ -55,7 +55,7 @@ const AddCoinDialog: React.FC<AddCoinDialogProps> = ({ open, onClose, onAdd }) =
   const searchCoins = async (query: string) => {
     setLoading(true);
     try {
-      const results = await CryptoService.searchCoins(query);
+      const results = await cryptoService.searchCoins(query);
       setCoinOptions(results.length > 0 ? results : popularCoins);
     } catch (error) {
       console.error('Error searching coins:', error);

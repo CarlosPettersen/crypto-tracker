@@ -21,7 +21,7 @@ import Portfolio from './components/Portfolio';
 import Recommendations from './components/Recommendations';
 import AddCoinDialog from './components/AddCoinDialog';
 import AddHoldingDialog from './components/AddHoldingDialog';
-import { CryptoService, WatchlistItem, PortfolioData, CoinRecommendation } from './services/CryptoService';
+import { cryptoService, WatchlistItem, PortfolioData, CoinRecommendation } from './services/CryptoService';
 import './App.css';
 
 const darkTheme = createTheme({
@@ -117,15 +117,15 @@ function App() {
     try {
       console.log('Loading data...');
       const [watchlist, portfolio, recommendations] = await Promise.all([
-        CryptoService.getWatchlist().catch(err => {
+        cryptoService.getWatchlist().catch(err => {
           console.warn('Watchlist failed:', err.message);
           return [];
         }),
-        CryptoService.getPortfolio().catch(err => {
+        cryptoService.getPortfolio().catch(err => {
           console.warn('Portfolio failed:', err.message);
           return { holdings: [], totalValue: 0, totalChange24h: 0, totalChangePercent: 0 };
         }),
-        CryptoService.getRecommendations().catch(err => {
+        cryptoService.getRecommendations().catch(err => {
           console.warn('Recommendations failed:', err.message);
           return [];
         }),
@@ -162,7 +162,7 @@ function App() {
 
   const handleAddCoin = async (coinId: string) => {
     try {
-      await CryptoService.addToWatchlist(coinId);
+      await cryptoService.addToWatchlist(coinId);
       showSnackbar(`Added ${coinId} to watchlist`);
       // Reload data immediately
       setTimeout(loadData, 1000);
@@ -173,7 +173,7 @@ function App() {
 
   const handleRemoveCoin = async (coinId: string) => {
     try {
-      await CryptoService.removeFromWatchlist(coinId);
+      await cryptoService.removeFromWatchlist(coinId);
       showSnackbar(`Removed ${coinId} from watchlist`);
       // Reload data immediately
       setTimeout(loadData, 1000);
@@ -185,7 +185,7 @@ function App() {
   const handleUpdateHolding = async (coinId: string, amount: number) => {
     try {
       console.log(`Updating holding: ${coinId} = ${amount}`);
-      await CryptoService.updatePortfolio(coinId, amount);
+      await cryptoService.updatePortfolio(coinId, amount);
       showSnackbar(`Updated ${coinId} holding`);
       // Reload data immediately and again after a short delay
       setTimeout(loadData, 500);
@@ -247,10 +247,7 @@ function App() {
           </TabPanel>
 
           <TabPanel value={tabValue} index={2}>
-            <Recommendations
-              data={recommendationsData}
-              loading={loading}
-            />
+            <Recommendations />
           </TabPanel>
         </Container>
 

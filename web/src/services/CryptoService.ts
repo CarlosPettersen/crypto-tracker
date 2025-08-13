@@ -59,8 +59,42 @@ export interface CoinRecommendation {
     market_cap: number;
     volume_24h: number;
   };
-  indicators: TechnicalIndicators;
-  recommendation: RecommendationData;
+  indicators: any;
+  recommendation: {
+    action: string;
+    confidence: string;
+    score: number;
+    signals: string[];
+    warnings: string[];
+    breakdown: {
+      trend: number;
+      momentum: number;
+      movingAverages: number;
+      macd: number;
+      bollinger: number;
+      volume: number;
+      patterns: number;
+      marketStructure: number;
+    };
+  };
+  analysis: {
+    technicalSummary: string[];
+    riskAssessment: {
+      level: string;
+      factors: string[];
+    };
+    timeframe: {
+      shortTerm: string;
+      mediumTerm: string;
+      longTerm: string;
+    };
+    keyLevels: {
+      support: number;
+      resistance: number;
+      stopLoss: number;
+      takeProfit: number;
+    };
+  };
 }
 
 export interface OptimizationSuggestion {
@@ -186,4 +220,4 @@ class CryptoServiceClass {
   }
 }
 
-export const CryptoService = new CryptoServiceClass();
+export const cryptoService = new CryptoServiceClass();

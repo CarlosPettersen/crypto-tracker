@@ -11,7 +11,7 @@ import {
   Autocomplete,
   CircularProgress,
 } from '@mui/material';
-import { CryptoService, CoinSearchResult } from '../services/CryptoService';
+import { cryptoService, CoinSearchResult } from '../services/CryptoService';
 
 interface AddHoldingDialogProps {
   open: boolean;
@@ -56,7 +56,7 @@ const AddHoldingDialog: React.FC<AddHoldingDialogProps> = ({ open, onClose, onAd
   const searchCoins = async (query: string) => {
     setLoading(true);
     try {
-      const results = await CryptoService.searchCoins(query);
+      const results = await cryptoService.searchCoins(query);
       setCoinOptions(results.length > 0 ? results : popularCoins);
     } catch (error) {
       console.error('Error searching coins:', error);
