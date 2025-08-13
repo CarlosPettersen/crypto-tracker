@@ -17,7 +17,7 @@ class CryptoTrackerServer {
     // Initialize components with API manager
     this.tracker = new CryptoTracker(this.apiManager);
     this.portfolio = new PortfolioManager();
-    this.recommendations = new RecommendationEngine();
+    this.recommendations = new RecommendationEngine(this.apiManager);
     
     this.setupMiddleware();
     this.setupRoutes();
@@ -422,23 +422,19 @@ class CryptoTrackerServer {
 
   async getRecommendations(req, res) {
     try {
-      const watchlist = this.tracker.getWatchlist();
-      const recommendations = [];
+      // Load portfolio and get holdings
+      await this.portfolio.loadPortfolio();
+      const holdings = this.portfolio.getHoldings();
+      const portfolioCoins = Array.from(holdings.keys());
       
-      for (const coinId of watchlist) {
-        try {
-          const analysis = await this.recommendations.analyzeAndRecommendAPI(coinId);
-          if (analysis) {
-            recommendations.push({
-              coinId,
-              name: coinId.charAt(0).toUpperCase() + coinId.slice(1),
-              ...analysis
-            });
-          }
-        } catch (error) {
-          console.error(`Error analyzing ${coinId}:`, error.message);
-        }
+      if (portfolioCoins.length === 0) {
+        return res.json([]);
       }
+      
+      console.log(`Getting recommendations for portfolio coins: ${portfolioCoins.join(', ')}`);
+      
+      // Use the updated getDetailedRecommendations method with portfolio coins
+      const recommendations = await this.recommendations.getDetailedRecommendations(portfolioCoins);
       
       res.json(recommendations);
     } catch (error) {
@@ -450,17 +446,13 @@ class CryptoTrackerServer {
   async getCoinRecommendation(req, res) {
     try {
       const { coinId } = req.params;
-      const analysis = await this.recommendations.analyzeAndRecommendAPI(coinId);
+      const analysis = await this.recommendations.analyzeAndRecommend(coinId);
       
       if (!analysis) {
         return res.status(404).json({ error: 'Analysis not available for this coin' });
       }
       
-      res.json({
-        coinId,
-        name: coinId.charAt(0).toUpperCase() + coinId.slice(1),
-        ...analysis
-      });
+      res.json(analysis);
     } catch (error) {
       console.error('Error getting coin recommendation:', error);
       res.status(500).json({ error: error.message });
