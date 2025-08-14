@@ -15,10 +15,11 @@ import {
   Snackbar,
   Alert
 } from '@mui/material';
-import { Add as AddIcon, Refresh as RefreshIcon } from '@mui/icons-material';
+import { Add as AddIcon, Refresh as RefreshIcon, TrendingUp as TradingIcon } from '@mui/icons-material';
 import Watchlist from './components/Watchlist';
 import Portfolio from './components/Portfolio';
 import Recommendations from './components/Recommendations';
+import TradingViewLayout from './components/TradingViewLayout';
 import AddCoinDialog from './components/AddCoinDialog';
 import AddHoldingDialog from './components/AddHoldingDialog';
 import { cryptoService, WatchlistItem, PortfolioData, CoinRecommendation } from './services/CryptoService';
@@ -93,7 +94,7 @@ function TabPanel(props: TabPanelProps) {
       aria-labelledby={`tab-${index}`}
       {...other}
     >
-      {value === index && <Box sx={{ py: 3 }}>{children}</Box>}
+      {value === index && <Box sx={{ py: value === 3 ? 0 : 3 }}>{children}</Box>}
     </div>
   );
 }
@@ -196,81 +197,99 @@ function App() {
     }
   };
 
+  // Check if we're in TradingView mode (full screen)
+  const isTradingViewMode = tabValue === 3;
+
   return (
     <ThemeProvider theme={darkTheme}>
       <CssBaseline />
       <Box sx={{ flexGrow: 1, minHeight: '100vh', background: 'linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%)' }}>
-        <AppBar position="static" sx={{ background: 'rgba(26, 31, 58, 0.9)', backdropFilter: 'blur(10px)' }}>
-          <Toolbar>
-            <Typography variant="h6" component="div" sx={{ flexGrow: 1, fontWeight: 600 }}>
-              🚀 Crypto Tracker
-            </Typography>
-            <Fab
-              size="small"
-              color="primary"
-              onClick={loadData}
-              sx={{ mr: 1 }}
-            >
-              <RefreshIcon />
-            </Fab>
-          </Toolbar>
-        </AppBar>
+        {!isTradingViewMode && (
+          <AppBar position="static" sx={{ background: 'rgba(26, 31, 58, 0.9)', backdropFilter: 'blur(10px)' }}>
+            <Toolbar>
+              <Typography variant="h6" component="div" sx={{ flexGrow: 1, fontWeight: 600 }}>
+                🚀 Crypto Tracker
+              </Typography>
+              <Fab
+                size="small"
+                color="primary"
+                onClick={loadData}
+                sx={{ mr: 1 }}
+              >
+                <RefreshIcon />
+              </Fab>
+            </Toolbar>
+          </AppBar>
+        )}
 
-        <Container maxWidth="xl" sx={{ mt: 2 }}>
-          <Paper sx={{ mb: 2 }}>
-            <Tabs
-              value={tabValue}
-              onChange={handleTabChange}
-              variant="fullWidth"
-              sx={{ borderBottom: 1, borderColor: 'divider' }}
-            >
-              <Tab label="📊 Watchlist" />
-              <Tab label="💼 Portfolio" />
-              <Tab label="🎯 Recommendations" />
-            </Tabs>
-          </Paper>
+        {!isTradingViewMode && (
+          <Container maxWidth="xl" sx={{ mt: 2 }}>
+            <Paper sx={{ mb: 2 }}>
+              <Tabs
+                value={tabValue}
+                onChange={handleTabChange}
+                variant="fullWidth"
+                sx={{ borderBottom: 1, borderColor: 'divider' }}
+              >
+                <Tab label="📊 Watchlist" />
+                <Tab label="💼 Portfolio" />
+                <Tab label="🎯 Recommendations" />
+                <Tab label="📈 Trading View" icon={<TradingIcon />} />
+              </Tabs>
+            </Paper>
+          </Container>
+        )}
 
-          <TabPanel value={tabValue} index={0}>
-            <Watchlist
-              data={watchlistData}
-              loading={loading}
-              onRemoveCoin={handleRemoveCoin}
-            />
+        {isTradingViewMode ? (
+          <TabPanel value={tabValue} index={3}>
+            <TradingViewLayout />
           </TabPanel>
+        ) : (
+          <Container maxWidth="xl">
+            <TabPanel value={tabValue} index={0}>
+              <Watchlist
+                data={watchlistData}
+                loading={loading}
+                onRemoveCoin={handleRemoveCoin}
+              />
+            </TabPanel>
 
-          <TabPanel value={tabValue} index={1}>
-            <Portfolio
-              data={portfolioData}
-              loading={loading}
-              onUpdateHolding={handleUpdateHolding}
-            />
-          </TabPanel>
+            <TabPanel value={tabValue} index={1}>
+              <Portfolio
+                data={portfolioData}
+                loading={loading}
+                onUpdateHolding={handleUpdateHolding}
+              />
+            </TabPanel>
 
-          <TabPanel value={tabValue} index={2}>
-            <Recommendations />
-          </TabPanel>
-        </Container>
+            <TabPanel value={tabValue} index={2}>
+              <Recommendations />
+            </TabPanel>
+          </Container>
+        )}
 
-        {/* Floating Action Buttons */}
-        <Box sx={{ position: 'fixed', bottom: 16, right: 16, display: 'flex', flexDirection: 'column', gap: 1 }}>
-          {tabValue === 0 && (
-            <Fab
-              color="primary"
-              onClick={() => setAddCoinOpen(true)}
-              sx={{ mb: 1 }}
-            >
-              <AddIcon />
-            </Fab>
-          )}
-          {tabValue === 1 && (
-            <Fab
-              color="secondary"
-              onClick={() => setAddHoldingOpen(true)}
-            >
-              <AddIcon />
-            </Fab>
-          )}
-        </Box>
+        {/* Floating Action Buttons - only show when not in TradingView mode */}
+        {!isTradingViewMode && (
+          <Box sx={{ position: 'fixed', bottom: 16, right: 16, display: 'flex', flexDirection: 'column', gap: 1 }}>
+            {tabValue === 0 && (
+              <Fab
+                color="primary"
+                onClick={() => setAddCoinOpen(true)}
+                sx={{ mb: 1 }}
+              >
+                <AddIcon />
+              </Fab>
+            )}
+            {tabValue === 1 && (
+              <Fab
+                color="secondary"
+                onClick={() => setAddHoldingOpen(true)}
+              >
+                <AddIcon />
+              </Fab>
+            )}
+          </Box>
+        )}
 
         {/* Dialogs */}
         <AddCoinDialog
@@ -299,6 +318,20 @@ function App() {
             {snackbar.message}
           </Alert>
         </Snackbar>
+
+        {/* TradingView Mode Toggle */}
+        {isTradingViewMode && (
+          <Box sx={{ position: 'fixed', top: 16, left: 16, zIndex: 1300 }}>
+            <Fab
+              size="small"
+              color="primary"
+              onClick={() => setTabValue(0)}
+              sx={{ mr: 1 }}
+            >
+              ←
+            </Fab>
+          </Box>
+        )}
       </Box>
     </ThemeProvider>
   );
